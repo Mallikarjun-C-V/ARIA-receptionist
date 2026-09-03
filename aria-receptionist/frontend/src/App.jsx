@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useVoiceAgent, STATUS } from './hooks/useVoiceAgent';
 import VoiceInterface from './components/VoiceInterface';
-import AdminDashboard from './pages/AdminDashboard';
+import AdminPage from './pages/admin/AdminPage';
 
 // ── Custom Cursor ────────────────────────────────────────────
 function CustomCursor() {
@@ -348,7 +348,7 @@ export default function App() {
       </main>
 
       <AnimatePresence>
-        {showAdmin && <AdminDashboard onClose={() => setShowAdmin(false)} />}
+        {showAdmin && <AdminPage onClose={() => setShowAdmin(false)} />}
       </AnimatePresence>
     </div>
   );
