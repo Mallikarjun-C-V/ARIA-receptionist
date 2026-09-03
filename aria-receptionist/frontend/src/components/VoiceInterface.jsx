@@ -323,8 +323,8 @@ export default function VoiceInterface({ messages, status, transcript, onMicClic
           <CentralMicButton status={status} onClick={onMicClick} />
 
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={onClear} style={{ background: 'rgba(10,10,20,0.7)', border: '1px solid rgba(0, 255, 0, 0.35)', color: 'rgba(255,255,255,0.7)', borderRadius: 8, padding: '5px 12px', cursor: 'pointer', fontSize: 10, fontFamily: 'inherit', letterSpacing: 0.5, backdropFilter: 'blur(8px)' }}>↺ Clear</button>
-            <button onClick={onClose} style={{ background: 'rgba(10,10,20,0.7)', border: '1px solid rgba(255, 0, 0, 0.35)', color: 'rgba(255,255,255,0.7)', borderRadius: 8, padding: '5px 12px', cursor: 'pointer', fontSize: 10, fontFamily: 'inherit', letterSpacing: 0.5, backdropFilter: 'blur(8px)' }}>✕ Close</button>
+            <button onClick={onClear} style={{ background: 'rgba(10,10,20,0.7)', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--c-muted)', borderRadius: 8, padding: '5px 12px', cursor: 'pointer', fontSize: 10, fontFamily: 'inherit', letterSpacing: 0.5, backdropFilter: 'blur(8px)' }}>↺ Clear</button>
+            <button onClick={onClose} style={{ background: 'rgba(10,10,20,0.7)', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--c-muted)', borderRadius: 8, padding: '5px 12px', cursor: 'pointer', fontSize: 10, fontFamily: 'inherit', letterSpacing: 0.5, backdropFilter: 'blur(8px)' }}>✕ Close</button>
           </div>
 
           <p style={{ color: 'rgba(255,255,255,0.08)', fontSize: 8, letterSpacing: 1.5, textTransform: 'uppercase' }}>
