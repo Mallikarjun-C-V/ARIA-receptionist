@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useVoiceAgent, STATUS } from './hooks/useVoiceAgent';
 import VoiceInterface from './components/VoiceInterface';
-import AdminPage from './pages/admin/AdminPage';
 
 // ── Custom Cursor ────────────────────────────────────────────
 function CustomCursor() {
@@ -245,7 +244,6 @@ function HeroPage({ onOpenARIA, serverStatus }) {
 // ── Main App ─────────────────────────────────────────────────
 export default function App() {
   const [isOpen, setIsOpen] = useState(false);
-  const [showAdmin, setShowAdmin] = useState(false);
   const [hasGreeted, setHasGreeted] = useState(false);
   const [serverStatus, setServerStatus] = useState('checking');
 
@@ -312,15 +310,6 @@ export default function App() {
               {serverStatus === 'checking' ? 'Checking' : serverStatus === 'online' ? 'Online' : 'Offline'}
             </span>
           </div>
-          <button onClick={() => setShowAdmin(true)} style={{
-            background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
-            color: 'var(--c-muted)', borderRadius: 8, padding: '6px 14px',
-            cursor: 'pointer', fontSize: 11, fontFamily: 'inherit', letterSpacing: 0.5,
-            transition: 'all 0.2s',
-          }}
-            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(124,111,247,0.12)'; e.currentTarget.style.color = 'var(--c-violet)'; }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.color = 'var(--c-muted)'; }}
-          >Admin</button>
         </div>
       </header>
 
@@ -347,9 +336,6 @@ export default function App() {
         </AnimatePresence>
       </main>
 
-      <AnimatePresence>
-        {showAdmin && <AdminPage onClose={() => setShowAdmin(false)} />}
-      </AnimatePresence>
     </div>
   );
 }
