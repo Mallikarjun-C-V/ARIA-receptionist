@@ -1,0 +1,26 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #020209;
+  --surface: #0a0a18;
+  --card: rgba(255,255,255,0.04);
+  --border: rgba(255,255,255,0.07);
+  --purple: #7c6ff7;
+  --violet: #a78bfa;
+  --teal: #2dd4bf;
+  --amber: #fbbf24;
+  --rose: #fb7185;
+  --muted: rgba(255,255,255,0.4);
+  --dim: rgba(255,255,255,0.18);
+  --font-d: 'Cormorant Garamond', serif;
+  --font-b: 'Outfit', sans-serif;
+}
+body { font-family: var(--font-b); background: var(--bg); color: #fff; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+input, button { font-family: var(--font-b); }
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(124,111,247,0.3); border-radius: 4px; }
+::selection { background: rgba(124,111,247,0.3); color: #fff; }
+@keyframes fadeIn { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
+@keyframes pulse { 0%,100%{opacity:1;transform:scale(1);} 50%{opacity:0.6;transform:scale(1.2);} }
+@keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+@keyframes fillRing { from{stroke-dasharray:0 1000;} }
