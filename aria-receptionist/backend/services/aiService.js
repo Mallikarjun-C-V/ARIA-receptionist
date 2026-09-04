@@ -16,9 +16,12 @@ VENUE INFORMATION:
 - Name: The Velvet Room
 - Cuisine: Modern European with seasonal tasting menus
 - Hours: Monday–Sunday, 5:00 PM – 11:00 PM
+- Seatings: Three evening seatings — 5:00 PM, 7:00 PM, 9:00 PM
+- Tables: 5 tables total, max 10 guests per table
+- Availability: Each seating has max 5 reservations (one per table)
 - Address: 47 Marina Boulevard, San Francisco, CA 94123
 - Phone: (415) 555-0192
-- Reservations: Required for parties of 1–12
+- Reservations: Required for parties of 1–10 (max 10 per table)
 - Dress code: Smart casual
 - Parking: Valet available from 5:30 PM
 - Private dining: Available for parties of 8–20 (advance booking required)
