@@ -1,84 +1,94 @@
-# ARIA — Autonomous Voice AI Receptionist v2.0
+# ARIA — Autonomous Voice AI Receptionist
 
-Voice AI receptionist with **email notifications**, **Google Sheets logging**, and **reservation reminders**.
+```
+aria-receptionist/
+├── backend/     → Node.js API server          (port 5000)
+├── frontend/    → User-facing React app        (port 5173)
+└── admin/       → Staff admin React app        (port 5174)
+```
 
 ---
 
 ## 🚀 Quick Start
 
-### 1. Backend
+### Terminal 1 — Backend
 ```bash
 cd backend
 npm install
-cp .env.example .env
-# Edit .env with your API keys (see below)
+cp .env.example .env        # fill in your keys
 npm run dev
 ```
 
-### 2. Frontend
+### Terminal 2 — Frontend (User app)
 ```bash
 cd frontend
 npm install
 npm run dev
+# open http://localhost:5173
 ```
 
-Open **http://localhost:5173** in Chrome.
+### Terminal 3 — Admin (Staff only)
+```bash
+cd admin
+npm install
+npm run dev
+# open http://localhost:5174
+```
 
 ---
 
-## ⚙️ Environment Variables
+## 🔑 Environment Setup
 
-### Required
+### backend/.env (required keys)
 ```
-GEMINI_API_KEY=         # https://aistudio.google.com/app/apikey (free)
-MONGODB_URI=            # mongodb://localhost:27017/aria_receptionist
+GEMINI_API_KEY=       # https://aistudio.google.com/app/apikey  (free)
+MONGODB_URI=          # mongodb://localhost:27017/aria_receptionist
+ADMIN_USERNAME=your-username
+ADMIN_PASSWORD=your-password
+JWT_SECRET=change_me_to_random_string
 ```
 
-### Email (Gmail + App Password)
+### Admin login
+- URL: http://localhost:5174
+- Username: value of ADMIN_USERNAME in backend/.env
+- Password: value of ADMIN_PASSWORD in backend/.env
+
+---
+
+## 🪑 Restaurant Capacity Logic
+- **5 tables** total
+- **Max 10 guests** per table (one booking per table)
+- **3 seatings** per evening: 5:00 PM · 7:00 PM · 9:00 PM
+- Maximum 5 bookings per time slot (one per table)
+- Bookings over 10 guests are rejected (suggest calling directly)
+
+---
+
+## 📧 Optional — Email Notifications
 ```
 EMAIL_USER=your@gmail.com
-EMAIL_PASS=xxxx xxxx xxxx xxxx   # 16-char App Password
+EMAIL_PASS=16-char-app-password    # Google Account → Security → App Passwords
 ```
-**How to get App Password:**
-1. Google Account → Security → 2-Step Verification → App Passwords
-2. Select "Mail" → Generate → copy the 16-char code
+- Instant confirmation email on booking
+- Reminder email at exact reservation time (cron, every minute)
 
-### Google Sheets
+## 📊 Optional — Google Sheets Logging
 ```
-GOOGLE_SERVICE_ACCOUNT_EMAIL=   # from service account JSON
-GOOGLE_PRIVATE_KEY=             # from service account JSON
-GOOGLE_SHEET_ID=                # from sheet URL
+GOOGLE_SERVICE_ACCOUNT_EMAIL=
+GOOGLE_PRIVATE_KEY=
+GOOGLE_SHEET_ID=
 ```
-**How to set up:**
-1. console.cloud.google.com → New project → Enable "Google Sheets API"
-2. IAM → Service Accounts → Create → Download JSON key
-3. Create Google Sheet → Share with service account email (Editor)
-4. Copy Sheet ID from URL: `.../spreadsheets/d/SHEET_ID/edit`
-
----
-
-## 📧 Email Features
-- **Instant confirmation** — sent immediately after booking
-- **Reservation reminder** — sent at exact reservation time (cron runs every minute)
-- Both emails are beautiful HTML with The Velvet Room branding
-
-## 📊 Google Sheets
-- Every booking auto-logged with all details
-- Cancellations update status column automatically
-- Headers auto-created on first run
-
-## 🎙️ Voice Flow
-Speak → Speech-to-text → Gemini AI → Book/Cancel/Check → MongoDB + Email + Sheets → Voice reply
 
 ---
 
 ## 📋 API Endpoints
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | /api/chat | Send message to AI |
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | /health | Server health |
+| POST | /api/chat | AI conversation |
 | GET | /api/bookings | All bookings |
-| POST | /api/bookings | Create booking |
-| PATCH | /api/bookings/:id/cancel | Cancel booking |
-| GET | /api/bookings/stats | Stats |
-| GET | /api/availability | Check slots |
-| GET | /health | Server status |
+| POST | /api/admin/login | Admin login → JWT |
+| GET | /api/admin/bookings | Bookings (auth) |
+| GET | /api/admin/capacity | Table map (auth) |
+| GET | /api/admin/stats | Stats (auth) |
+| PATCH | /api/admin/bookings/:id/cancel | Cancel (auth) |
