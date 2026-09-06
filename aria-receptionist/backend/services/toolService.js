@@ -1,102 +1,147 @@
-const Booking = require('../models/Booking');
+const Booking  = require('../models/Booking');
 const mongoose = require('mongoose');
+const R        = require('../config/restaurant');
+const { validatePartySize, isPastDate, formatDisplayDate } = require('../utils/dateUtils');
 
-// ── Restaurant constants ──────────────────────────────────────
-const RESTAURANT = {
-  TOTAL_TABLES:   5,
-  MAX_PER_TABLE:  10,
-  // Three seatings per evening
-  TIME_SLOTS: ['5:00 PM', '7:00 PM', '9:00 PM'],
-};
-
-// In-memory fallback
+// In-memory fallback (when MongoDB not connected)
 const memoryDB = [];
-let memCounter = 1000;
 
 function isDBConnected() {
   return mongoose.connection.readyState === 1;
 }
 
-// ── Count confirmed bookings (tables) for a given date + slot ─
-async function countTablesBooked(date, time) {
+// ── Get occupied table numbers for a specific date + time ─────
+// Returns a Set of table numbers (1-5) already booked
+async function getOccupiedTables(date, time) {
+  let bookings;
   if (isDBConnected()) {
-    return Booking.countDocuments({ date, time, status: 'confirmed' });
+    bookings = await Booking.find({ date, time, status: 'confirmed' }).lean();
+  } else {
+    bookings = memoryDB.filter(b => b.date === date && b.time === time && b.status === 'confirmed');
   }
-  return memoryDB.filter(b => b.date === date && b.time === time && b.status === 'confirmed').length;
+  return new Set(bookings.map(b => b.tableNumber).filter(n => n != null));
+}
+
+// ── Find the lowest-numbered free table for date + time ───────
+async function findAvailableTable(date, time) {
+  const occupied = await getOccupiedTables(date, time);
+  for (let t = 1; t <= R.TOTAL_TABLES; t++) {
+    if (!occupied.has(t)) return t;
+  }
+  return null;  // all tables taken
 }
 
 // ── Book Table ────────────────────────────────────────────────
 async function bookTable(data) {
-  if (!data || typeof data !== 'object') return { success: false, error: 'Invalid booking data' };
-  if (!data.customerName && !data.name) return { success: false, error: 'Customer name is required' };
-  if (!data.date)  return { success: false, error: 'Date is required' };
-  if (!data.time)  return { success: false, error: 'Time is required' };
+  // ── 1. Basic presence checks ──────────────────────────────
+  if (!data || typeof data !== 'object')
+    return { success: false, error: 'Invalid booking data' };
 
-  const people = parseInt(data.people) || 2;
+  const name = (data.customerName || data.name || '').trim();
+  if (!name)          return { success: false, error: 'Customer name is required' };
+  if (!data.date)     return { success: false, error: 'Date is required' };
+  if (!data.time)     return { success: false, error: 'Time is required' };
 
-  // Rule 1 — party size cannot exceed one table
-  if (people > RESTAURANT.MAX_PER_TABLE) {
+  // ── 2. Date must be canonical YYYY-MM-DD and not in the past ─
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(data.date)) {
+    return { success: false, error: `Invalid date format: "${data.date}". Expected YYYY-MM-DD.` };
+  }
+  if (isPastDate(data.date)) {
+    return { success: false, error: `Cannot book for a past date (${data.date}).` };
+  }
+
+  // ── 3. Time must be a valid canonical seating slot ────────
+  if (!R.SEATING_TIMES.includes(data.time)) {
     return {
       success: false,
-      error: `Maximum ${RESTAURANT.MAX_PER_TABLE} guests per table. For larger parties please call us directly.`,
+      error: `Invalid time "${data.time}". Valid seatings are: ${R.SEATING_TIMES.join(', ')}.`,
     };
   }
 
-  // Rule 2 — check if any tables are still free for this slot
-  const tablesBooked = await countTablesBooked(data.date, data.time);
-  if (tablesBooked >= RESTAURANT.TOTAL_TABLES) {
+  // ── 4. Party size — strict integer, no parseInt fallback ──
+  const sizeCheck = validatePartySize(data.people, R.MAX_GUESTS_PER_TABLE, R.MIN_GUESTS);
+  if (!sizeCheck.valid) {
+    return { success: false, error: sizeCheck.error };
+  }
+  const people = sizeCheck.value;
+
+  // ── 5. Find an actual available table for this date+time ──
+  const tableNumber = await findAvailableTable(data.date, data.time);
+  if (tableNumber === null) {
+    // All 5 tables taken — suggest other slots on same date
+    const otherSlots = await Promise.all(
+      R.SEATING_TIMES.filter(s => s !== data.time).map(async slot => {
+        const t = await findAvailableTable(data.date, slot);
+        return t ? slot : null;
+      })
+    );
+    const alts = otherSlots.filter(Boolean);
+    const altMsg = alts.length
+      ? ` We do have tables available at: ${alts.join(', ')} on ${formatDisplayDate(data.date)}.`
+      : '';
     return {
       success: false,
-      error: `Sorry, all ${RESTAURANT.TOTAL_TABLES} tables are fully booked for ${data.time} on ${data.date}. Please choose a different time.`,
+      error: `All ${R.TOTAL_TABLES} tables are booked for ${data.time} on ${formatDisplayDate(data.date)}.${altMsg}`,
     };
   }
 
+  // ── 6. Build and save the booking ─────────────────────────
   const bookingData = {
-    bookingId:      `BK${++memCounter}`,
-    customerName:   (data.customerName || data.name || '').trim(),
-    date:           data.date,
-    time:           data.time,
+    bookingId:       `BK${Date.now().toString().slice(-7)}`,
+    customerName:    name,
+    date:            data.date,
+    time:            data.time,
     people,
-    phone:          data.phone || '',
-    email:          data.email || '',
-    specialRequests: data.specialRequests || '',
-    occasion:       data.occasion || '',
-    status:         'confirmed',
-    tableNumber:    tablesBooked + 1,   // next available table number
+    tableNumber,
+    phone:           (data.phone || '').trim(),
+    email:           (data.email || '').trim().toLowerCase(),
+    specialRequests: (data.specialRequests || '').trim(),
+    occasion:        data.occasion || '',
+    status:          'confirmed',
   };
 
   if (isDBConnected()) {
     try {
       const booking = new Booking(bookingData);
-      const saved = await booking.save();
-      console.log(`✅ Booking saved: ${saved.bookingId} — Table ${bookingData.tableNumber} for ${people} guests`);
-      return { success: true, booking: saved.toObject(), source: 'database' };
+      const saved   = await booking.save();
+      console.log(`✅ Booked: ${saved.bookingId} — ${saved.date} ${saved.time} Table ${tableNumber} × ${people} guests`);
+      return { success: true, booking: saved.toObject() };
     } catch (err) {
       console.error('DB booking error:', err.message);
+      if (err.code === 11000) {
+        return { success: false, error: 'Duplicate booking ID — please try again.' };
+      }
       // Fall through to memory
     }
   }
 
-  memoryDB.push({ ...bookingData, _id: bookingData.bookingId, createdAt: new Date() });
-  return { success: true, booking: bookingData, source: 'memory' };
+  const memBooking = { ...bookingData, _id: bookingData.bookingId, createdAt: new Date() };
+  memoryDB.push(memBooking);
+  console.log(`✅ Memory booking: ${bookingData.bookingId} — Table ${tableNumber}`);
+  return { success: true, booking: memBooking };
 }
 
 // ── Cancel Reservation ────────────────────────────────────────
 async function cancelReservation(identifier) {
+  if (!identifier) return { success: false, message: 'No identifier provided' };
+
   if (isDBConnected()) {
     try {
       const booking = await Booking.findOneAndUpdate(
         {
           $or: [
             { bookingId: identifier },
-            { customerName: new RegExp(identifier, 'i') },
+            { customerName: new RegExp(`^${identifier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
           ],
           status: { $ne: 'cancelled' },
         },
         { status: 'cancelled' },
         { new: true }
       );
-      if (booking) return { success: true, booking: booking.toObject() };
+      if (booking) {
+        console.log(`🚫 Cancelled: ${booking.bookingId} (Table ${booking.tableNumber} released)`);
+        return { success: true, booking: booking.toObject() };
+      }
     } catch (err) {
       console.error('DB cancel error:', err.message);
     }
@@ -104,59 +149,68 @@ async function cancelReservation(identifier) {
 
   const idx = memoryDB.findIndex(b =>
     b.bookingId === identifier ||
-    b.customerName?.toLowerCase().includes(identifier?.toLowerCase())
+    b.customerName?.toLowerCase() === identifier?.toLowerCase()
   );
-  if (idx !== -1) {
+  if (idx !== -1 && memoryDB[idx].status !== 'cancelled') {
     memoryDB[idx].status = 'cancelled';
+    console.log(`🚫 Memory cancel: ${memoryDB[idx].bookingId}`);
     return { success: true, booking: memoryDB[idx] };
   }
   return { success: false, message: 'Reservation not found' };
 }
 
 // ── Check Availability ────────────────────────────────────────
-async function checkAvailability(date, time, people = 2) {
-  if (people > RESTAURANT.MAX_PER_TABLE) {
-    return {
-      available: false,
-      reason: `Maximum ${RESTAURANT.MAX_PER_TABLE} guests per table`,
-      availableSlots: [],
-    };
+// date must already be YYYY-MM-DD (resolved by caller)
+async function checkAvailability(date, time, people) {
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return { available: false, error: 'Invalid or missing date' };
+  }
+  if (isPastDate(date)) {
+    return { available: false, error: 'That date has already passed' };
+  }
+  if (time && !R.SEATING_TIMES.includes(time)) {
+    return { available: false, error: `Invalid time. Valid slots: ${R.SEATING_TIMES.join(', ')}` };
   }
 
-  const tablesBooked = await countTablesBooked(date, time);
-  const tablesLeft   = RESTAURANT.TOTAL_TABLES - tablesBooked;
-  const available    = tablesLeft > 0;
+  if (people !== undefined && people !== null) {
+    const sizeCheck = validatePartySize(people, R.MAX_GUESTS_PER_TABLE, R.MIN_GUESTS);
+    if (!sizeCheck.valid) return { available: false, error: sizeCheck.error };
+  }
 
-  // Find available slots for that date
-  const slotAvailability = await Promise.all(
-    RESTAURANT.TIME_SLOTS.map(async slot => {
-      const booked = await countTablesBooked(date, slot);
-      return { slot, tablesLeft: RESTAURANT.TOTAL_TABLES - booked, available: booked < RESTAURANT.TOTAL_TABLES };
+  // Check the specific slot requested
+  const specificAvailable = time ? (await findAvailableTable(date, time)) !== null : null;
+
+  // Check all slots for this date
+  const slotDetails = await Promise.all(
+    R.SEATING_TIMES.map(async slot => {
+      const occupied = await getOccupiedTables(date, slot);
+      const tablesLeft = R.TOTAL_TABLES - occupied.size;
+      return { slot, tablesLeft, available: tablesLeft > 0 };
     })
   );
-  const availableSlots = slotAvailability.filter(s => s.available).map(s => s.slot);
+
+  const availableSlots = slotDetails.filter(s => s.available).map(s => s.slot);
 
   return {
-    available,
+    available:      time ? specificAvailable : availableSlots.length > 0,
     date,
+    displayDate:    formatDisplayDate(date),
     time,
-    requestedPartySize: people,
-    tablesBooked,
-    tablesLeft,
-    totalTables: RESTAURANT.TOTAL_TABLES,
+    slotDetails,
     availableSlots,
-    restaurant: RESTAURANT,
+    totalTables:    R.TOTAL_TABLES,
+    maxPerTable:    R.MAX_GUESTS_PER_TABLE,
   };
 }
 
-// ── Get All Bookings ──────────────────────────────────────────
+// ── Get All Bookings (with optional filters) ──────────────────
 async function getAllBookings(filters = {}) {
   if (isDBConnected()) {
     try {
       const query = {};
       if (filters.status) query.status = filters.status;
       if (filters.date)   query.date   = filters.date;
-      return Booking.find(query).sort({ createdAt: -1 }).limit(200).lean();
+      return Booking.find(query).sort({ date: 1, time: 1, tableNumber: 1 }).limit(500).lean();
     } catch (err) {
       console.error('DB fetch error:', err.message);
     }
@@ -167,25 +221,14 @@ async function getAllBookings(filters = {}) {
       if (filters.date   && b.date   !== filters.date)   return false;
       return true;
     })
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
 }
 
-// ── Get Single Booking ────────────────────────────────────────
-async function getBooking(identifier) {
-  if (isDBConnected()) {
-    try {
-      const b = await Booking.findOne({
-        $or: [{ bookingId: identifier }, { customerName: new RegExp(identifier, 'i') }],
-      }).lean();
-      if (b) return b;
-    } catch (err) {
-      console.error('DB getBooking error:', err.message);
-    }
-  }
-  return memoryDB.find(b =>
-    b.bookingId === identifier ||
-    b.customerName?.toLowerCase().includes(identifier?.toLowerCase())
-  ) || null;
-}
-
-module.exports = { bookTable, cancelReservation, checkAvailability, getAllBookings, getBooking, RESTAURANT };
+module.exports = {
+  bookTable,
+  cancelReservation,
+  checkAvailability,
+  getAllBookings,
+  findAvailableTable,
+  getOccupiedTables,
+};
