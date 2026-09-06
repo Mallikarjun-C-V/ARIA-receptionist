@@ -1,52 +1,60 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const R = require('../config/restaurant');
+const { getTodayStr } = require('../utils/dateUtils');
 
-// Validate API key exists before initializing
 if (!process.env.GEMINI_API_KEY) {
-  console.error('❌ CRITICAL: GEMINI_API_KEY is not set in environment variables');
-  process.exit(1);
+  console.error('❌ GEMINI_API_KEY is not set'); process.exit(1);
 }
-
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-const SYSTEM_PROMPT = `You are ARIA — Autonomous Receptionist Intelligence Agent — the sophisticated AI receptionist for The Velvet Room, a premium Modern European restaurant.
+// Build system prompt dynamically so today's date is always current
+function buildSystemPrompt() {
+  const today = getTodayStr(R.TIMEZONE);
+  return `You are ARIA — Autonomous Receptionist Intelligence Agent — the professional AI receptionist for The Velvet Room.
 
-PERSONALITY: Warm, professional, elegant. Speak naturally like a real human receptionist would. Be concise but personable.
+PERSONALITY: Warm, professional, elegant. Concise but personable.
+
+TODAY'S DATE: ${today} (restaurant timezone: ${R.TIMEZONE})
+Use this to interpret relative dates like "today", "tomorrow", "this Friday".
 
 VENUE INFORMATION:
-- Name: The Velvet Room
+- Name: ${R.NAME}
 - Cuisine: Modern European with seasonal tasting menus
 - Hours: Monday–Sunday, 5:00 PM – 11:00 PM
-- Seatings: Three evening seatings — 5:00 PM, 7:00 PM, 9:00 PM
-- Tables: 5 tables total, max 10 guests per table
-- Availability: Each seating has max 5 reservations (one per table)
+- Seatings: ${R.SEATING_TIMES.join(', ')} ONLY — these are the only valid booking times
+- Tables: ${R.TOTAL_TABLES} tables, max ${R.MAX_GUESTS_PER_TABLE} guests per table
 - Address: 47 Marina Boulevard, San Francisco, CA 94123
-- Phone: (415) 555-0192
-- Reservations: Required for parties of 1–10 (max 10 per table)
+- Phone: ${R.PRIVATE_DINING_PHONE}
 - Dress code: Smart casual
-- Parking: Valet available from 5:30 PM
-- Private dining: Available for parties of 8–20 (advance booking required)
-- Chef's tasting menu: 7 courses, available Fri–Sun only
-- Happy hour: 5 PM – 6:30 PM at the bar only
+- Parking: Valet from 5:30 PM
+- Chef's tasting menu: 7 courses, Fri–Sun only
+- Happy hour: 5 PM – 6:30 PM at the bar
 
-CAPABILITIES:
-1. Book a table — collect: guest name, date, time, party size, email (required for confirmation), phone (optional)
-2. Cancel reservation — need: booking ID or guest name
-3. Check availability — check if date/time slot is open
-4. Answer FAQs about the venue
-5. Modify reservations
-6. General assistance
+PARTY SIZE RULES (IMPORTANT):
+- Standard booking: 1–${R.MAX_GUESTS_PER_TABLE} guests maximum
+- For parties of ${R.PRIVATE_DINING_MIN}+ guests: DO NOT create a standard booking.
+  Instead say: "For parties of ${R.PRIVATE_DINING_MIN} or more, we arrange private dining separately.
+  Please call us on ${R.PRIVATE_DINING_PHONE} and our events team will assist you."
+- Never promise a standard table booking for more than ${R.MAX_GUESTS_PER_TABLE} guests.
 
-RULES:
-- Always confirm details before booking
-- If missing required info (name, date, time, people), ask for it naturally
-- Maximum party size is 12 (suggest private dining for larger groups)
-- Be warm but efficient — don't be overly verbose
-- Detect user sentiment and respond appropriately (if frustrated, be extra apologetic)
-- Offer alternative times if requested slot is unavailable
+BOOKING COLLECTION:
+Collect in this order (ask naturally, not like a form):
+1. Guest name
+2. Date (accept natural language — backend will resolve it)
+3. Time (must be one of: ${R.SEATING_TIMES.join(', ')})
+4. Party size (1–${R.MAX_GUESTS_PER_TABLE})
+5. Email (required — for confirmation)
+6. Phone (optional)
 
-RESPONSE FORMAT — Always respond with valid JSON only, no markdown, no code fences:
+DATE HANDLING:
+- Accept natural dates: "today", "tomorrow", "this Friday", "next Monday", "September 5"
+- Pass the date EXACTLY as the user said — do NOT try to resolve it yourself
+- The backend will convert it to a real date
+- If user says "7pm" or "19:00", normalise to "7:00 PM" in the action data
+
+RESPONSE FORMAT — Always return valid JSON only, no markdown, no code fences:
 {
-  "message": "Your natural spoken response (under 80 words)",
+  "message": "Your spoken response (under 80 words)",
   "intent": "greeting|book_table|cancel_reservation|check_availability|modify_booking|faq|general|clarification",
   "action": null,
   "suggestions": [],
@@ -54,139 +62,78 @@ RESPONSE FORMAT — Always respond with valid JSON only, no markdown, no code fe
   "missingInfo": []
 }
 
-When booking is ready to execute (all info collected — name, date, time, people, email all provided), set action to:
+When ALL required info is collected, set action to:
 {
   "type": "book_table",
   "data": {
     "customerName": "full name",
-    "date": "as provided",
-    "time": "as provided",
-    "people": number,
-    "email": "guest email address",
-    "phone": "if provided or empty string",
-    "specialRequests": "if any or empty string",
+    "date": "exactly as user said, e.g. tomorrow or September 5",
+    "time": "5:00 PM or 7:00 PM or 9:00 PM",
+    "people": <integer 1–${R.MAX_GUESTS_PER_TABLE}>,
+    "email": "email address",
+    "phone": "phone if given, else empty string",
+    "specialRequests": "if any, else empty string",
     "occasion": "birthday|anniversary|business|date|other or empty string"
   }
 }
 
-When cancelling, set action to:
-{
-  "type": "cancel_reservation",
-  "data": { "identifier": "booking ID or name" }
+For cancellation:
+{ "type": "cancel_reservation", "data": { "identifier": "booking ID or guest name" } }
+
+For availability check:
+{ "type": "check_availability", "data": { "date": "as user said", "time": "canonical slot or null", "people": <number or null> } }
+
+Set missingInfo to still-needed fields: ["name","date","time","people","email"]
+Set suggestions to 2–3 helpful quick-reply options.`;
 }
 
-When checking availability, set action to:
-{
-  "type": "check_availability",
-  "data": { "date": "date", "time": "time", "people": number }
-}
-
-Set missingInfo array to fields still needed for booking: ["name","date","time","people","email"]
-IMPORTANT: Always ask for email before finalising any booking. Email is required to send confirmation.
-Set suggestions to 2-3 helpful quick reply options for the user.`;
-
-async function processAIMessage(messages, context = {}, retries = 3) {
-  const MAX_RETRIES = retries;
-  let lastError;
-
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      // Updated to the most stable high-capacity free model for 2026
-      const model = genAI.getGenerativeModel({
-        model: 'gemini-3.1-flash-lite-preview',
-        generationConfig: {
-          maxOutputTokens: 1024,
-          temperature: 0.7,
-        },
-      });
-
-      // Build conversation history for Gemini (all but last message)
-      const history = messages.slice(0, -1).map(m => ({
-        role: m.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: m.content }],
-      }));
-
-      const lastMessage = messages[messages.length - 1];
-      
-      // Validate last message exists and has content
-      if (!lastMessage || !lastMessage.content) {
-        throw new Error('Invalid message format - no content provided');
-      }
-
-      // Pass systemInstruction into startChat (correct placement for this SDK)
-      const chat = model.startChat({
-        history,
-        systemInstruction: {
-          role: 'user',
-          parts: [{ text: SYSTEM_PROMPT }],
-        },
-      });
-
-      // Add timeout promise (45s for booking operations)
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('AI API timeout - request taking too long')), 45000)
-      );
-      const messagePromise = chat.sendMessage(lastMessage.content);
-      
-      const result = await Promise.race([messagePromise, timeoutPromise]);
-      const rawText = result.response.text();
-
-      // Strip any markdown fences Gemini might add
-      const cleaned = rawText.replace(/```json\n?|\n?```/g, '').trim();
-
-      try {
-        const parsed = JSON.parse(cleaned);
-        return {
-          message: parsed.message || 'How may I assist you?',
-          intent: parsed.intent || 'general',
-          action: parsed.action || null,
-          suggestions: parsed.suggestions || [],
-          sentiment: parsed.sentiment || 'neutral',
-          missingInfo: parsed.missingInfo || [],
-          raw: rawText,
-        };
-      } catch (parseError) {
-        console.error('JSON parse error:', parseError.message);
-        // If Gemini didn't return JSON, use the raw text as the message
-        return {
-          message: rawText.substring(0, 300),
-          intent: 'general',
-          action: null,
-          suggestions: ['Book a table', 'Check availability', 'Learn more'],
-          sentiment: 'neutral',
-          missingInfo: [],
-        };
-      }
-    } catch (error) {
-      lastError = error;
-      console.error(`Gemini API error (attempt ${attempt}/${MAX_RETRIES}):`, error.message);
-      
-      // Retry on network/timeout errors (but not on parse errors)
-      if (attempt < MAX_RETRIES && (error.message.includes('timeout') || error.message.includes('network') || error.message.includes('ECONNREFUSED'))) {
-        const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // exponential backoff
-        console.log(`Retrying in ${delay}ms...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-        continue;
-      }
-      
-      // Don't retry on other errors
-      throw error;
-    }
-  }
-  
-  throw new Error(`AI service failed after ${MAX_RETRIES} attempts: ${lastError?.message}`);
-}
-
-async function generateSummary(conversation) {
+async function processAIMessage(messages) {
   try {
-    // Updated to the most stable high-capacity free model for 2026
-    const model = genAI.getGenerativeModel({ model: 'gemini-3.1-flash-lite-preview' }); 
-    const prompt = `Summarize this customer service conversation in 2 sentences. Focus on what was accomplished:\n\n${conversation.map(m => `${m.role}: ${m.content}`).join('\n')}`;
-    const result = await model.generateContent(prompt);
-    return result.response.text() || '';
-  } catch {
-    return 'Conversation summary unavailable.';
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-2.0-flash',
+      generationConfig: { maxOutputTokens: 1024, temperature: 0.7 },
+    });
+
+    const history = messages.slice(0, -1).map(m => ({
+      role:  m.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: m.content }],
+    }));
+
+    const lastMessage = messages[messages.length - 1];
+
+    const chat   = model.startChat({
+      history,
+      systemInstruction: { role: 'user', parts: [{ text: buildSystemPrompt() }] },
+    });
+    const result = await chat.sendMessage(lastMessage.content);
+    const raw    = result.response.text();
+    const clean  = raw.replace(/```json\n?|\n?```/g, '').trim();
+
+    try {
+      const parsed = JSON.parse(clean);
+      return {
+        message:     parsed.message    || 'How may I assist you?',
+        intent:      parsed.intent     || 'general',
+        action:      parsed.action     || null,
+        suggestions: parsed.suggestions || [],
+        sentiment:   parsed.sentiment  || 'neutral',
+        missingInfo: parsed.missingInfo || [],
+      };
+    } catch {
+      // Non-JSON fallback
+      return {
+        message:     raw.substring(0, 300),
+        intent:      'general',
+        action:      null,
+        suggestions: ['Book a table', 'Check availability', 'Our hours'],
+        sentiment:   'neutral',
+        missingInfo: [],
+      };
+    }
+  } catch (error) {
+    console.error('Gemini API error:', error.message);
+    throw new Error(`AI service error: ${error.message}`);
   }
 }
 
-module.exports = { processAIMessage, generateSummary };
+module.exports = { processAIMessage };
