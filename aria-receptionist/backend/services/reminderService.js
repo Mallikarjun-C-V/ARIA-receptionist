@@ -1,109 +1,63 @@
-const cron = require('node-cron');
+const cron    = require('node-cron');
 const Booking = require('../models/Booking');
 const { sendReminderEmail } = require('./emailService');
+const { getTodayStr } = require('../utils/dateUtils');
+const R       = require('../config/restaurant');
 const mongoose = require('mongoose');
 
-// ── Parse time string like "7:00 PM" → { hour: 19, minute: 0 } ─
-function parseTime(timeStr) {
+// ── Parse canonical slot "7:00 PM" → { hour:19, minute:0 } ──
+function parseCanonicalTime(timeStr) {
   if (!timeStr) return null;
-  const match = timeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
-  if (!match) return null;
-  let hour = parseInt(match[1]);
-  const minute = parseInt(match[2]);
-  const period = match[3].toUpperCase();
-  if (period === 'PM' && hour !== 12) hour += 12;
-  if (period === 'AM' && hour === 12) hour = 0;
+  const m = timeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+  if (!m) return null;
+  let hour = parseInt(m[1]);
+  const minute = parseInt(m[2]);
+  if (m[3].toUpperCase() === 'PM' && hour !== 12) hour += 12;
+  if (m[3].toUpperCase() === 'AM' && hour === 12)  hour = 0;
   return { hour, minute };
 }
 
-// ── Parse date string like "Saturday", "2024-12-28", "tomorrow" ──
-// Returns a Date object or null if we can't parse it
-function parseBookingDate(dateStr) {
-  if (!dateStr) return null;
-
-  // Try direct ISO parse first
-  const direct = new Date(dateStr);
-  if (!isNaN(direct.getTime())) return direct;
-
-  const today = new Date();
-  const lower = dateStr.toLowerCase().trim();
-
-  if (lower === 'today') return today;
-  if (lower === 'tomorrow') {
-    const d = new Date(today);
-    d.setDate(d.getDate() + 1);
-    return d;
-  }
-
-  // Day name — find the next occurrence
-  const days = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
-  const targetDay = days.indexOf(lower.replace('this ','').replace('next ',''));
-  if (targetDay !== -1) {
-    const d = new Date(today);
-    const diff = (targetDay - d.getDay() + 7) % 7 || 7;
-    d.setDate(d.getDate() + diff);
-    return d;
-  }
-
-  return null;
-}
-
-// ── Check bookings and send reminders ────────────────────────
 async function checkAndSendReminders() {
   if (mongoose.connection.readyState !== 1) return;
 
   try {
+    // Current time in restaurant timezone
     const now = new Date();
-    const currentHour   = now.getHours();
-    const currentMinute = now.getMinutes();
+    const tzDate = new Date(now.toLocaleString('en-US', { timeZone: R.TIMEZONE }));
+    const currentHour   = tzDate.getHours();
+    const currentMinute = tzDate.getMinutes();
+    // Today's date in restaurant timezone
+    const todayStr = getTodayStr(R.TIMEZONE);
 
-    // Only fetch confirmed bookings that haven't had reminder sent
+    // Only look at confirmed bookings for TODAY with canonical YYYY-MM-DD dates
     const bookings = await Booking.find({
-      status: 'confirmed',
-      email: { $exists: true, $ne: '' },
+      date:         todayStr,          // exact match — no relative dates possible
+      status:       'confirmed',
+      email:        { $exists: true, $ne: '' },
       reminderSent: { $ne: true },
     }).lean();
 
     for (const booking of bookings) {
-      const bookingDate = parseBookingDate(booking.date);
-      if (!bookingDate) continue;
+      const t = parseCanonicalTime(booking.time);
+      if (!t) continue;
 
-      const bookingTime = parseTime(booking.time);
-      if (!bookingTime) continue;
-
-      // Check if it's the same calendar day
-      const sameDay =
-        bookingDate.getFullYear() === now.getFullYear() &&
-        bookingDate.getMonth()    === now.getMonth() &&
-        bookingDate.getDate()     === now.getDate();
-
-      if (!sameDay) continue;
-
-      // Check if current time matches reservation time (within same minute)
-      if (bookingTime.hour === currentHour && bookingTime.minute === currentMinute) {
-        console.log(`⏰ Sending reminder for booking ${booking.bookingId} at ${booking.time}`);
+      if (t.hour === currentHour && t.minute === currentMinute) {
+        console.log(`⏰ Reminder: ${booking.bookingId} at ${booking.time} → ${booking.email}`);
         await sendReminderEmail(booking);
-
-        // Mark reminder sent so we don't send again
         await Booking.findOneAndUpdate(
           { bookingId: booking.bookingId },
-          { reminderSent: true }
+          { reminderSent: true, 'emailsSent.reminder': true }
         );
       }
     }
   } catch (err) {
-    console.error('❌ Reminder check error:', err.message);
+    console.error('Reminder scheduler error:', err.message);
   }
 }
 
-// ── Start the cron job — runs every minute ────────────────────
 function startReminderScheduler() {
-  console.log('⏰ Reminder scheduler started — checks every minute');
-
-  // Runs at second 0 of every minute: "0 * * * * *"
-  cron.schedule('0 * * * * *', () => {
-    checkAndSendReminders();
-  });
+  console.log(`⏰ Reminder scheduler started — timezone: ${R.TIMEZONE}`);
+  cron.schedule('0 * * * * *', checkAndSendReminders);
 }
 
 module.exports = { startReminderScheduler };
