@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { MAX_GUESTS_PER_TABLE, MIN_GUESTS, TOTAL_TABLES } = require('../config/restaurant');
 
 const bookingSchema = new mongoose.Schema({
   bookingId: {
@@ -12,39 +13,38 @@ const bookingSchema = new mongoose.Schema({
     trim: true,
     maxlength: [100, 'Name cannot exceed 100 characters'],
   },
+  // Always stored as YYYY-MM-DD canonical format
   date: {
     type: String,
     required: [true, 'Date is required'],
     trim: true,
+    match: [/^\d{4}-\d{2}-\d{2}$/, 'Date must be in YYYY-MM-DD format'],
   },
+  // Always stored as canonical slot: '5:00 PM', '7:00 PM', or '9:00 PM'
   time: {
     type: String,
     required: [true, 'Time is required'],
-    trim: true,
+    enum: {
+      values: ['5:00 PM', '7:00 PM', '9:00 PM'],
+      message: 'Time must be one of the valid seating slots: 5:00 PM, 7:00 PM, 9:00 PM',
+    },
   },
   people: {
     type: Number,
     required: [true, 'Number of guests is required'],
-    min: [1, 'Minimum 1 guest'],
-    max: [12, 'Maximum 12 guests'],
+    min: [MIN_GUESTS, `Minimum ${MIN_GUESTS} guest`],
+    max: [MAX_GUESTS_PER_TABLE, `Maximum ${MAX_GUESTS_PER_TABLE} guests per table`],
   },
-  phone: {
-    type: String,
-    trim: true,
-    default: '',
+  // Which physical table (1–TOTAL_TABLES) for this date+time
+  tableNumber: {
+    type: Number,
+    min: 1,
+    max: TOTAL_TABLES,
+    default: null,
   },
-  email: {
-    type: String,
-    trim: true,
-    lowercase: true,
-    default: '',
-  },
-  specialRequests: {
-    type: String,
-    trim: true,
-    maxlength: [500, 'Special requests cannot exceed 500 characters'],
-    default: '',
-  },
+  phone: { type: String, trim: true, default: '' },
+  email: { type: String, trim: true, lowercase: true, default: '' },
+  specialRequests: { type: String, trim: true, maxlength: 500, default: '' },
   status: {
     type: String,
     enum: ['confirmed', 'cancelled', 'pending'],
@@ -55,12 +55,7 @@ const bookingSchema = new mongoose.Schema({
     enum: ['birthday', 'anniversary', 'business', 'date', 'other', ''],
     default: '',
   },
-  // Track whether reminder email was sent at reservation time
-  reminderSent: {
-    type: Boolean,
-    default: false,
-  },
-  // Track email notifications
+  reminderSent: { type: Boolean, default: false },
   emailsSent: {
     confirmation: { type: Boolean, default: false },
     reminder:     { type: Boolean, default: false },
@@ -71,7 +66,9 @@ const bookingSchema = new mongoose.Schema({
   toObject: { virtuals: true },
 });
 
-bookingSchema.index({ date: 1, time: 1 });
+// Compound index: fast lookup by date+time for capacity checks
+bookingSchema.index({ date: 1, time: 1, status: 1 });
+bookingSchema.index({ date: 1, time: 1, tableNumber: 1 });
 bookingSchema.index({ customerName: 1 });
 bookingSchema.index({ bookingId: 1 });
 bookingSchema.index({ createdAt: -1 });
