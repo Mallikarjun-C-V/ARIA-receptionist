@@ -43,8 +43,8 @@ npm run dev
 ```
 GEMINI_API_KEY=       # https://aistudio.google.com/app/apikey  (free)
 MONGODB_URI=          # mongodb://localhost:27017/aria_receptionist
-ADMIN_USERNAME=your-username
-ADMIN_PASSWORD=your-password
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=velvet2024
 JWT_SECRET=change_me_to_random_string
 ```
 
